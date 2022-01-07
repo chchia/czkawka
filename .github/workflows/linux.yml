@@ -1,5 +1,9 @@
 name: 🐧 Linux
-on: [ push, pull_request ]
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 0 * * 2'
 
 env:
   CARGO_TERM_COLOR: always
@@ -10,7 +14,7 @@ jobs:
       matrix:
         toolchain: [ stable ]
         type: [ release ]
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
 
@@ -51,8 +55,8 @@ jobs:
           path: target/release/czkawka_cli
         if: ${{ matrix.type == 'release' }}
 
-# Duplicate finder checks included and excluded directories
-# Others are just check delete files number
+      # Duplicate finder checks included and excluded directories
+      # Others are just check delete files number
       - name: Linux Regression Test
         run: |
           wget https://github.com/qarmin/czkawka/releases/download/1.1.0/TestSuite.zip
@@ -126,9 +130,9 @@ jobs:
   linux-gui:
     strategy:
       matrix:
-        toolchain: [ stable ]
+        toolchain: [ stable, 1.53.0 ]
         type: [ release ]
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
 
@@ -192,7 +196,7 @@ jobs:
       matrix:
         toolchain: [ stable ]
         type: [ release ]
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
 
@@ -226,7 +230,7 @@ jobs:
           chmod +x linuxdeploy-x86_64.AppImage
           mkdir -p AppDir/usr/bin
           cp target/release/czkawka_gui AppDir/usr/bin
-          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin gtk --output appimage --icon-file data/icons/com.github.qarmin.czkawka.svg --desktop-file pkgs/com.github.qarmin.czkawka.desktop
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin gtk --output appimage --icon-file data/icons/com.github.qarmin.czkawka.svg --desktop-file data/com.github.qarmin.czkawka.desktop
 
       - name: Store Linux Appimage GUI
         uses: actions/upload-artifact@v2

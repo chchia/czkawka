@@ -1,9 +1,10 @@
-use crate::common::Common;
-use crate::common_messages::Messages;
 use std::path::Path;
 use std::time::SystemTime;
 
-#[derive(Default)]
+use crate::common::Common;
+use crate::common_messages::Messages;
+
+#[derive(Clone, Default)]
 pub struct ExcludedItems {
     pub items: Vec<String>,
 }
@@ -43,7 +44,9 @@ impl ExcludedItems {
                 continue;
             }
             if !expression.contains('*') {
-                text_messages.warnings.push("Excluded Items Warning: Wildcard * is required in expression, ignoring ".to_string() + expression.as_str());
+                text_messages
+                    .warnings
+                    .push("Excluded Items Warning: Wildcard * is required in expression, ignoring ".to_string() + expression.as_str());
                 continue;
             }
 

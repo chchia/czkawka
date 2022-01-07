@@ -1,6 +1,6 @@
 [package]
 name = "czkawka_cli"
-version = "3.1.0"
+version = "3.3.1"
 authors = ["Rafał Mikrut <mikrutrafal@protonmail.com>"]
 edition = "2018"
 description = "CLI frontend of Czkawka"
@@ -9,5 +9,8 @@ homepage = "https://github.com/qarmin/czkawka"
 repository = "https://github.com/qarmin/czkawka"
 
 [dependencies]
-czkawka_core = { path = "../czkawka_core" }
-structopt = "0.3.22"
+czkawka_core = { path = "../czkawka_core", version = "3.3.1" }
+structopt = "0.3.25"
+
+# For enum types
+img_hash = "3.2.0"

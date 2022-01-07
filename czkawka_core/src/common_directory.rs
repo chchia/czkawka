@@ -1,16 +1,23 @@
-use crate::common::Common;
-use crate::common_messages::Messages;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-#[derive(Default)]
+use crate::common::Common;
+use crate::common_messages::Messages;
+
+#[derive(Clone, Default)]
 pub struct Directories {
     pub excluded_directories: Vec<PathBuf>,
     pub included_directories: Vec<PathBuf>,
+    pub reference_directories: Vec<PathBuf>,
 }
+
 impl Directories {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn set_reference_directory(&mut self, reference_directory: Vec<PathBuf>) {
+        self.reference_directories = reference_directory
     }
 
     /// Setting included directories, at least one must be provided
@@ -27,34 +34,47 @@ impl Directories {
         let mut checked_directories: Vec<PathBuf> = Vec::new();
         for directory in directories {
             if directory.to_string_lossy().contains('*') {
-                text_messages.warnings.push(format!("Included Directory Warning: Wildcards in path are not supported, ignoring {}", directory.display()));
+                text_messages
+                    .warnings
+                    .push(format!("Included Directory Warning: Wildcards in path are not supported, ignoring {}", directory.display()));
                 continue;
             }
 
             #[cfg(not(target_family = "windows"))]
             if directory.is_relative() {
-                text_messages.warnings.push(format!("Included Directory Warning: Relative path are not supported, ignoring {}", directory.display()));
+                text_messages
+                    .warnings
+                    .push(format!("Included Directory Warning: Relative path are not supported, ignoring {}", directory.display()));
                 continue;
             }
             #[cfg(target_family = "windows")]
             if directory.is_relative() && !directory.starts_with("\\") {
-                text_messages.warnings.push(format!("Included Directory Warning: Relative path are not supported, ignoring {}", directory.display()));
+                text_messages
+                    .warnings
+                    .push(format!("Included Directory Warning: Relative path are not supported, ignoring {}", directory.display()));
                 continue;
             }
 
             if !directory.exists() {
-                text_messages.warnings.push(format!("Included Directory Warning: Provided folder path must exits, ignoring {}", directory.display()));
+                text_messages
+                    .warnings
+                    .push(format!("Included Directory Warning: Provided folder path must exits, ignoring {}", directory.display()));
                 continue;
             }
             if !directory.is_dir() {
-                text_messages.warnings.push(format!("Included Directory Warning: Provided path must point at the directory, ignoring {}", directory.display()));
+                text_messages.warnings.push(format!(
+                    "Included Directory Warning: Provided path must point at the directory, ignoring {}",
+                    directory.display()
+                ));
                 continue;
             }
             checked_directories.push(directory);
         }
 
         if checked_directories.is_empty() {
-            text_messages.errors.push("Included Directory ERROR: Not found even one correct path to included which is required.".to_string());
+            text_messages
+                .errors
+                .push("Included Directory ERROR: Not found even one correct path to included which is required.".to_string());
             return false;
         }
 
@@ -77,21 +97,29 @@ impl Directories {
         for directory in directories {
             let directory_as_string = directory.to_string_lossy();
             if directory_as_string == "/" {
-                text_messages.errors.push("Excluded Directory ERROR: Excluding / is pointless, because it means that no files will be scanned.".to_string());
+                text_messages
+                    .errors
+                    .push("Excluded Directory ERROR: Excluding / is pointless, because it means that no files will be scanned.".to_string());
                 break;
             }
             if directory_as_string.contains('*') {
-                text_messages.warnings.push(format!("Excluded Directory Warning: Wildcards in path are not supported, ignoring {}", directory.display()));
+                text_messages
+                    .warnings
+                    .push(format!("Excluded Directory Warning: Wildcards in path are not supported, ignoring {}", directory.display()));
                 continue;
             }
             #[cfg(not(target_family = "windows"))]
             if directory.is_relative() {
-                text_messages.warnings.push(format!("Excluded Directory Warning: Relative path are not supported, ignoring {}", directory.display()));
+                text_messages
+                    .warnings
+                    .push(format!("Excluded Directory Warning: Relative path are not supported, ignoring {}", directory.display()));
                 continue;
             }
             #[cfg(target_family = "windows")]
             if directory.is_relative() && !directory.starts_with("\\") {
-                text_messages.warnings.push(format!("Excluded Directory Warning: Relative path are not supported, ignoring {}", directory.display()));
+                text_messages
+                    .warnings
+                    .push(format!("Excluded Directory Warning: Relative path are not supported, ignoring {}", directory.display()));
                 continue;
             }
 
@@ -100,7 +128,10 @@ impl Directories {
                 continue;
             }
             if !directory.is_dir() {
-                text_messages.warnings.push(format!("Excluded Directory Warning: Provided path must point at the directory, ignoring {}", directory.display()));
+                text_messages.warnings.push(format!(
+                    "Excluded Directory Warning: Provided path must point at the directory, ignoring {}",
+                    directory.display()
+                ));
                 continue;
             }
             checked_directories.push(directory);
@@ -120,15 +151,18 @@ impl Directories {
         if cfg!(target_family = "windows") {
             self.included_directories = self.included_directories.iter().map(Common::normalize_windows_path).collect();
             self.excluded_directories = self.excluded_directories.iter().map(Common::normalize_windows_path).collect();
+            self.reference_directories = self.reference_directories.iter().map(Common::normalize_windows_path).collect();
         }
 
         // Remove duplicated entries like: "/", "/"
 
         self.excluded_directories.sort();
         self.included_directories.sort();
+        self.reference_directories.sort();
 
         self.excluded_directories.dedup();
         self.included_directories.dedup();
+        self.reference_directories.dedup();
 
         // Optimize for duplicated included directories - "/", "/home". "/home/Pulpit" to "/"
         if recursive_search {
@@ -225,8 +259,24 @@ impl Directories {
 
         self.excluded_directories = optimized_excluded;
 
+        // Selecting Reference folders
+        {
+            let mut ref_folders = Vec::new();
+            for folder in &self.reference_directories {
+                if self.included_directories.iter().any(|e| folder.starts_with(&e)) {
+                    ref_folders.push(folder.clone());
+                    // println!("REF: VALID reference folder {:?}", folder);
+                } else {
+                    // println!("REF: Invalid reference folder {:?}", folder);
+                }
+            }
+            self.reference_directories = ref_folders;
+        }
+
         if self.included_directories.is_empty() {
-            text_messages.errors.push("Optimize Directories ERROR: Excluded directories overlaps all included directories.".to_string());
+            text_messages
+                .errors
+                .push("Optimize Directories ERROR: Excluded directories overlaps all included directories.".to_string());
             return false;
         }
 

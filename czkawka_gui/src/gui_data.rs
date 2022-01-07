@@ -1,4 +1,24 @@
-extern crate gtk;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use crossbeam_channel::unbounded;
+use gdk::gdk_pixbuf::Pixbuf;
+use gtk::prelude::*;
+use gtk::Builder;
+
+use czkawka_core::big_file::BigFile;
+use czkawka_core::broken_files::BrokenFiles;
+use czkawka_core::duplicate::DuplicateFinder;
+use czkawka_core::empty_files::EmptyFiles;
+use czkawka_core::empty_folder::EmptyFolder;
+use czkawka_core::fl;
+use czkawka_core::invalid_symlinks::InvalidSymlinks;
+use czkawka_core::same_music::SameMusic;
+use czkawka_core::similar_images::SimilarImages;
+use czkawka_core::similar_videos::SimilarVideos;
+use czkawka_core::temporary::Temporary;
+
 use crate::gui_about::GuiAbout;
 use crate::gui_bottom_buttons::GuiBottomButtons;
 use crate::gui_header::GuiHeader;
@@ -6,25 +26,11 @@ use crate::gui_main_notebook::GuiMainNotebook;
 use crate::gui_popovers::GuiPopovers;
 use crate::gui_progress_dialog::GuiProgressDialog;
 use crate::gui_settings::GuiSettings;
-use crate::gui_upper_notepad::GuiUpperNotebook;
+use crate::gui_upper_notebook::GuiUpperNotebook;
 use crate::notebook_enums::*;
 use crate::taskbar_progress::TaskbarProgress;
-use crossbeam_channel::unbounded;
-use czkawka_core::big_file::BigFile;
-use czkawka_core::broken_files::BrokenFiles;
-use czkawka_core::duplicate::DuplicateFinder;
-use czkawka_core::empty_files::EmptyFiles;
-use czkawka_core::empty_folder::EmptyFolder;
-use czkawka_core::invalid_symlinks::InvalidSymlinks;
-use czkawka_core::same_music::SameMusic;
-use czkawka_core::similar_images::SimilarImages;
-use czkawka_core::temporary::Temporary;
-use czkawka_core::zeroed::ZeroedFiles;
-use gtk::prelude::*;
-use gtk::{Builder, WindowPosition};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::Rc;
+
+const ICON_ABOUT: &[u8; 4458] = include_bytes!("../../snap/gui/czkawka.png");
 
 #[derive(Clone)]
 pub struct GuiData {
@@ -50,9 +56,6 @@ pub struct GuiData {
     // Buttons state
     pub shared_buttons: Rc<RefCell<HashMap<NotebookMainEnum, HashMap<String, bool>>>>,
 
-    // Upper Notebook state
-    pub shared_upper_notebooks: Rc<RefCell<HashMap<NotebookMainEnum, HashMap<NotebookUpperEnum, bool>>>>,
-
     // State of search results
     pub shared_duplication_state: Rc<RefCell<DuplicateFinder>>,
     pub shared_empty_folders_state: Rc<RefCell<EmptyFolder>>,
@@ -60,10 +63,12 @@ pub struct GuiData {
     pub shared_temporary_files_state: Rc<RefCell<Temporary>>,
     pub shared_big_files_state: Rc<RefCell<BigFile>>,
     pub shared_similar_images_state: Rc<RefCell<SimilarImages>>,
-    pub shared_zeroed_files_state: Rc<RefCell<ZeroedFiles>>,
+    pub shared_similar_videos_state: Rc<RefCell<SimilarVideos>>,
     pub shared_same_music_state: Rc<RefCell<SameMusic>>,
     pub shared_same_invalid_symlinks: Rc<RefCell<InvalidSymlinks>>,
     pub shared_broken_files_state: Rc<RefCell<BrokenFiles>>,
+
+    pub preview_path: Rc<RefCell<String>>,
 
     //// Entry
     pub entry_info: gtk::Entry,
@@ -78,25 +83,29 @@ pub struct GuiData {
 }
 
 impl GuiData {
-    pub fn new() -> Self {
+    pub fn new_with_application(application: &gtk::Application) -> Self {
         //// Loading glade file content and build with it help UI
         let glade_src = include_str!("../ui/main_window.glade").to_string();
         let builder = Builder::from_string(glade_src.as_str());
 
         //// Windows
         let window_main: gtk::Window = builder.object("window_main").unwrap();
+        window_main.set_title(&fl!("window_main_title"));
         window_main.show_all();
-        window_main.set_title("Czkawka");
-        window_main.set_position(WindowPosition::Center);
+
+        let pixbuf = Pixbuf::from_read(std::io::BufReader::new(&ICON_ABOUT[..])).unwrap();
+        window_main.set_icon(Some(&pixbuf));
+
+        window_main.set_application(Some(application));
 
         let main_notebook = GuiMainNotebook::create_from_builder(&builder);
         let upper_notebook = GuiUpperNotebook::create_from_builder(&builder);
         let popovers = GuiPopovers::create_from_builder();
-        let bottom_buttons = GuiBottomButtons::create_from_builder(&builder);
-        let progress_window = GuiProgressDialog::create_from_builder();
-        let about = GuiAbout::create_from_builder();
+        let bottom_buttons = GuiBottomButtons::create_from_builder(&builder, &popovers.popover_select);
+        let progress_window = GuiProgressDialog::create_from_builder(&window_main);
+        let about = GuiAbout::create_from_builder(&window_main, &pixbuf);
         let header = GuiHeader::create_from_builder(&builder);
-        let settings = GuiSettings::create_from_builder();
+        let settings = GuiSettings::create_from_builder(&window_main);
 
         ////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -119,19 +128,6 @@ impl GuiData {
             shared_buttons.borrow_mut().insert(i.clone(), temp_hashmap);
         }
 
-        // Upper Notebook state
-        let shared_upper_notebooks: Rc<RefCell<_>> = Rc::new(RefCell::new(HashMap::<NotebookMainEnum, HashMap<NotebookUpperEnum, bool>>::new()));
-
-        for i in get_all_main_tabs().iter() {
-            let mut temp_hashmap: HashMap<NotebookUpperEnum, bool> = Default::default();
-            for j in get_all_upper_tabs().iter() {
-                temp_hashmap.insert(j.clone(), true);
-            }
-            shared_upper_notebooks.borrow_mut().insert(i.clone(), temp_hashmap);
-        }
-        // Some upper notebook tabs are disabled
-        *shared_upper_notebooks.borrow_mut().get_mut(&NotebookMainEnum::Temporary).unwrap().get_mut(&NotebookUpperEnum::AllowedExtensions).unwrap() = false;
-
         // State of search results
 
         let shared_duplication_state: Rc<RefCell<_>> = Rc::new(RefCell::new(DuplicateFinder::new()));
@@ -140,10 +136,12 @@ impl GuiData {
         let shared_temporary_files_state: Rc<RefCell<_>> = Rc::new(RefCell::new(Temporary::new()));
         let shared_big_files_state: Rc<RefCell<_>> = Rc::new(RefCell::new(BigFile::new()));
         let shared_similar_images_state: Rc<RefCell<_>> = Rc::new(RefCell::new(SimilarImages::new()));
-        let shared_zeroed_files_state: Rc<RefCell<_>> = Rc::new(RefCell::new(ZeroedFiles::new()));
+        let shared_similar_videos_state: Rc<RefCell<_>> = Rc::new(RefCell::new(SimilarVideos::new()));
         let shared_same_music_state: Rc<RefCell<_>> = Rc::new(RefCell::new(SameMusic::new()));
         let shared_same_invalid_symlinks: Rc<RefCell<_>> = Rc::new(RefCell::new(InvalidSymlinks::new()));
         let shared_broken_files_state: Rc<RefCell<_>> = Rc::new(RefCell::new(BrokenFiles::new()));
+
+        let preview_path: Rc<RefCell<_>> = Rc::new(RefCell::new("".to_string()));
 
         //// Entry
         let entry_info: gtk::Entry = builder.object("entry_info").unwrap();
@@ -170,22 +168,35 @@ impl GuiData {
             header,
             taskbar_state,
             shared_buttons,
-            shared_upper_notebooks,
             shared_duplication_state,
             shared_empty_folders_state,
             shared_empty_files_state,
             shared_temporary_files_state,
             shared_big_files_state,
             shared_similar_images_state,
-            shared_zeroed_files_state,
+            shared_similar_videos_state,
             shared_same_music_state,
             shared_same_invalid_symlinks,
             shared_broken_files_state,
+            preview_path,
             entry_info,
             text_view_errors,
             scrolled_window_errors,
             stop_sender,
             stop_receiver,
         }
+    }
+
+    pub fn update_language(&self) {
+        self.window_main.set_title(&fl!("window_main_title"));
+
+        self.main_notebook.update_language();
+        self.upper_notebook.update_language();
+        self.popovers.update_language();
+        self.bottom_buttons.update_language();
+        self.progress_window.update_language();
+        self.about.update_language();
+        self.header.update_language();
+        self.settings.update_language();
     }
 }
